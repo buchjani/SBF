@@ -1,0 +1,12 @@
+name: SBF-Binnen
+title: SBF-Binnen
+username: ccbuge-buchjani
+account: ccbuge-buchjani
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 15229603
+bundleId: 10792731
+url: https://ccbuge-buchjani.shinyapps.io/SBF-Binnen/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE
