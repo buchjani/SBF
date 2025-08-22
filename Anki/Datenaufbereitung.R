@@ -5,7 +5,6 @@ library(purrr)
 library(readr)
 library(stringr)
 
-
 # Datenaufbereitung --------------------------------------------------------------------------------
 
 ## Fragenkatalog Basis
@@ -48,11 +47,7 @@ img_srcs <-
   select(q_no, src) %>%
   filter(!is.na(src)) %>%
   group_by(q_no) %>%
-  # nest(src = src)
-  mutate(
-    src = list(src)
-  ) %>%
-  ungroup()
+  nest(src = src)
 
 df <- texts_clean %>%
   filter(type != "img") %>%
@@ -71,65 +66,100 @@ df <- texts_clean %>%
 ### Check für Fragen mit mehreren Images
 # df <- df[109:113,]
 
+# DAtenaufbereitung für Anki -----------------------------------
+set.seed(1)
 
-## Datenaufbereitung für Anki (https://docs.ankiweb.net/importing/text-files.html)
-# Medienordner anlegen
-dir_img <- "./Anki/anki_media"
-if(!dir.exists(dir_img)) dir.create(dir_img)
+# Medienordner
+media_dir <- "./anki/anki_media"
+if(!dir.exists(media_dir)) dir.create(media_dir)
 
-# Hilfsfunktion: Antworten mischen, Richtige finden
-prepare_answers <- function(answers) {
+# -----------------------------
+# Hilfsfunktionen
+# -----------------------------
+
+# Text bereinigen: Zeilenumbrüche -> <br>, Tabs entfernen
+clean_text <- function(x) {
+  x <- as.character(x)
+  x[is.na(x)] <- ""
+  x <- gsub("\r\n|\r|\n", "<br>", x)
+  x <- gsub("\t", " ", x)
+  trimws(x)
+}
+
+# Antworten mischen + richtigen Buchstaben bestimmen
+prepare_answers <- function(ans_list) {
+  ans <- clean_text(unlist(ans_list))
+  if(length(ans) < 4) ans <- c(ans, rep("", 4 - length(ans))) # falls zu kurz
   letters_vec <- LETTERS[1:4]
-  idx <- sample(1:4)  # zufällige Reihenfolge
-  shuffled <- answers[idx]
-  correct_letter <- letters_vec[which(idx == 1)] # weil answers[1] die richtige ist
+
+  correct_answer <- ans[1]        # erste Antwort ist korrekt
+  idx <- sample(1:4)              # zufällig mischen
+  shuffled <- ans[idx]
+
+  correct_letter <- letters_vec[which(shuffled == correct_answer)]
   answers_text <- paste0(letters_vec, ". ", shuffled, collapse = "<br>")
+
   list(text = answers_text, correct = correct_letter)
 }
 
-# Hilfsfunktion: Bilder herunterladen + HTML-Tag erzeugen
+
+# Bilder herunterladen + <img>-Tag erzeugen
 prepare_images <- function(urls, qid) {
-  if(length(urls) == 0 || all(is.na(urls))) return("")
+  # URLs in Character-Vektor konvertieren
+  urls <- unlist(urls)
+  if(length(urls) == 0) return("")
+
   img_tags <- c()
   for(i in seq_along(urls)) {
-    url <- urls[[i]]
+    url <- as.character(urls[i])
     if(is.na(url) || url == "") next
-    # Dateiname erzeugen
     ext <- tools::file_ext(url)
     if(ext == "") ext <- "jpg"
     fname <- paste0("q", qid, "_", i, ".", ext)
-    destfile <- file.path(dir_img, fname)
-    # Download (falls noch nicht vorhanden)
+    destfile <- file.path(media_dir, fname)
     if(!file.exists(destfile)) {
-      tryCatch({
-        download.file(url, destfile, mode = "wb", quiet = TRUE)
-      }, error = function(e) message("Fehler beim Download: ", url))
+      tryCatch(download.file(url, destfile, mode="wb", quiet=TRUE),
+               error=function(e) message("Fehler beim Download: ", url))
     }
     img_tags <- c(img_tags, sprintf('<img src="%s">', fname))
   }
-  paste(img_tags, collapse = "<br>")
+
+  paste(img_tags, collapse = "<br>")  # immer Länge 1 zurückgeben
 }
 
+
+# -----------------------------
 # Hauptverarbeitung
+# -----------------------------
+
 anki_df <- df %>%
   mutate(
-    answers_prep = map(answers, prepare_answers),
-    answers_text = map_chr(answers_prep, "text"),
+    cat_clean      = clean_text(cat),
+    question_clean = clean_text(question),
+    answers_prep   = map(answers, prepare_answers),
+    answers_text   = map_chr(answers_prep, "text"),
     correct_letter = map_chr(answers_prep, "correct"),
-    image_html = map2_chr(image_urls, id, prepare_images),
-    front = paste0("Frage ", id, " (", cat, ")<br>",
-                   question, "<br><br>",
-                   answers_text, "<br>",
-                   image_html),
-    back = correct_letter
+    image_html     = map2_chr(image_urls, id, prepare_images),
+    front = paste0(
+      "Frage ", id, " (", cat_clean, ")<br>",
+      question_clean, "<br><br>",
+      answers_text,
+      ifelse(image_html == "", "", paste0("<br>", image_html))
+    ),
+    back = clean_text(correct_letter)
   ) %>%
-  select(front, back)
+  transmute(front, back)
 
-# CSV exportieren (Tab-getrennt für Anki)
+# -----------------------------
+# Export für Anki
+# -----------------------------
 write.table(anki_df,
-            file = "./Anki/anki_cards.csv",
+            file = "./anki/anki_cards.tsv",
             sep = "\t",
             row.names = FALSE,
             col.names = FALSE,
             quote = FALSE,
             fileEncoding = "UTF-8")
+
+message("Export fertig! Datei 'anki_cards.tsv' und Bilder in '", media_dir, "'")
+
