@@ -143,8 +143,8 @@ anki_df <- df %>%
     front = paste0(
       "Frage ", id, " (", cat_clean, ")<br>",
       question_clean, "<br><br>",
-      answers_text,
-      ifelse(image_html == "", "", paste0("<br>", image_html))
+      ifelse(image_html == "", "", paste0("<br>", image_html)),
+      answers_text
     ),
     back = clean_text(correct_letter)
   ) %>%
