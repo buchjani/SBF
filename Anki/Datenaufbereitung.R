@@ -56,6 +56,7 @@ df <- texts_clean %>%
   mutate(
     p = p %>% str_remove("^[0-9]+\\. "),
     ol = map(ol, function(x) str_split_1(x, "\\n\\n\\n")),
+    ol = map(ol, function(x) str_remove(x, "\\n\\n")),
   ) %>%
   left_join(img_srcs, by = "q_no") %>%
   rename(question = p,
@@ -71,86 +72,98 @@ set.seed(1)
 
 # Medienordner
 media_dir <- "./anki/anki_media"
-if(!dir.exists(media_dir)) dir.create(media_dir)
+if (!dir.exists(media_dir)) dir.create(media_dir)
 
-# -----------------------------
-# Hilfsfunktionen
-# -----------------------------
-
-# Text bereinigen: Zeilenumbrüche -> <br>, Tabs entfernen
+# Hilfsfunktion Text aufräumen
 clean_text <- function(x) {
   x <- as.character(x)
   x[is.na(x)] <- ""
-  x <- gsub("\r\n|\r|\n", "<br>", x)
+  x <- gsub("\r\n|\r|\n", " ", x)  # harte Umbrüche ersetzen
   x <- gsub("\t", " ", x)
   trimws(x)
 }
 
-# Antworten mischen + richtigen Buchstaben bestimmen
+# Antworten mischen
 prepare_answers <- function(ans_list) {
-  ans <- clean_text(unlist(ans_list))
-  if(length(ans) < 4) ans <- c(ans, rep("", 4 - length(ans))) # falls zu kurz
-  letters_vec <- LETTERS[1:4]
+  ans <- unlist(ans_list, use.names = FALSE)
+  ans <- vapply(ans, clean_text, FUN.VALUE = character(1))
+  if (length(ans) < 4) ans <- c(ans, rep("", 4 - length(ans)))
 
-  correct_answer <- ans[1]        # erste Antwort ist korrekt
-  idx <- sample(1:4)              # zufällig mischen
+  letters_vec <- LETTERS[1:4]
+  correct_answer <- ans[1]
+  idx <- sample(1:4)
   shuffled <- ans[idx]
 
-  correct_letter <- letters_vec[which(shuffled == correct_answer)]
-  answers_text <- paste0(letters_vec, ". ", shuffled, collapse = "<br>")
+  correct_pos <- match(correct_answer, shuffled)
+  correct_letter <- letters_vec[correct_pos]
+  correct_text   <- shuffled[correct_pos]
 
-  list(text = answers_text, correct = correct_letter)
+  # jede Option mit <br> am Ende
+  answers_text <- paste0(letters_vec, ". ", shuffled, "<br>", collapse = "")
+
+  list(
+    text = answers_text,
+    correct_letter = correct_letter,
+    correct_text = correct_text
+  )
 }
 
-
-# Bilder herunterladen + <img>-Tag erzeugen
+# Bilder
 prepare_images <- function(urls, qid) {
-  urls <- unlist(urls)
-  if(length(urls) == 0) return("")
+  urls <- unlist(urls, use.names = FALSE)
+  if (length(urls) == 0 || all(is.na(urls))) return("")
 
-  img_tags <- c()
-  for(i in seq_along(urls)) {
+  tags <- character(0)
+  for (i in seq_along(urls)) {
     url <- as.character(urls[i])
-    if(is.na(url) || url == "") next
+    if (is.na(url) || url == "") next
+
     ext <- tools::file_ext(url)
-    if(ext == "") ext <- "jpg"
+    if (ext == "") ext <- "jpg"
     fname <- paste0("q", qid, "_", i, ".", ext)
     destfile <- file.path(media_dir, fname)
-    if(!file.exists(destfile)) {
-      tryCatch(download.file(url, destfile, mode="wb", quiet=TRUE),
-               error=function(e) message("Fehler beim Download: ", url))
+
+    if (!file.exists(destfile)) {
+      tryCatch(
+        download.file(url, destfile, mode = "wb", quiet = TRUE),
+        error = function(e) message("Fehler beim Download: ", url)
+      )
     }
-    # Bildblock mit <br> davor und dahinter
-    img_tags <- c(img_tags, sprintf('<br><img src="%s"><br>', fname))
+    tags <- c(tags, sprintf("<img src=\"%s\"><br>", fname))
   }
-  paste(img_tags, collapse = "")
+  paste(tags, collapse = "")
 }
 
-
-
-# -----------------------------
 # Hauptverarbeitung
-# -----------------------------
-
 anki_df <- df %>%
   mutate(
-    answers_prep   = map(answers, prepare_answers),
-    answers_text   = map_chr(answers_prep, "text"),
-    correct_letter = map_chr(answers_prep, "correct"),
+    cat_clean      = clean_text(cat),
+    question_clean = clean_text(question),
+
+    ans_p          = map(answers, prepare_answers),
+    answers_text   = map_chr(ans_p, "text"),
+    correct_letter = map_chr(ans_p, "correct_letter"),
+    correct_text   = map_chr(ans_p, "correct_text"),
+
     image_html     = map2_chr(image_urls, id, prepare_images),
+
+    # FRONT: genau definierte Struktur
     front = paste0(
-      "Frage ", id, " (", cat, ")<br>",
-      question, "<br>",          # Frage
-      image_html,                # dann Bilder
-      answers_text               # dann Antworten
+      "Frage ", id, " (", cat_clean, ")<br>",
+      question_clean, "<br>",
+      image_html,                # falls leer, kommt nix
+      "<br>",                    # fester Abstand
+      answers_text
     ),
-    back = correct_letter
+
+    back = paste0(correct_letter, ". ", correct_text)
   ) %>%
-  select(front, back)
+  transmute(front, back)
 
 # -----------------------------
-# Export für Anki
+# Export (eine Zeile pro Karte)
 # -----------------------------
+# Tab-getrennt, ohne Header, UTF-8 (ohne BOM)
 write.table(anki_df,
             file = "./anki/anki_cards.tsv",
             sep = "\t",
@@ -159,5 +172,13 @@ write.table(anki_df,
             quote = FALSE,
             fileEncoding = "UTF-8")
 
-message("Export fertig! Datei 'anki_cards.tsv' und Bilder in '", media_dir, "'")
-
+# Front, Back verdreht weil es offenbar andersrum angezeigt wird
+anki_df2 <- anki_df %>%
+  select(back, front)
+write.table(anki_df2,
+            file = "./anki/anki_cards_v2.tsv",
+            sep = "\t",
+            row.names = FALSE,
+            col.names = FALSE,
+            quote = FALSE,
+            fileEncoding = "UTF-8")
