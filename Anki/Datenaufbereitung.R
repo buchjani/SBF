@@ -87,20 +87,24 @@ clean_text <- function(x) {
 }
 
 # Antworten mischen + richtigen Buchstaben bestimmen
-prepare_answers <- function(ans_list) {
-  ans <- clean_text(unlist(ans_list))
-  if(length(ans) < 4) ans <- c(ans, rep("", 4 - length(ans))) # falls zu kurz
-  letters_vec <- LETTERS[1:4]
+prepare_answers <- function(ans_vec) {
+  ans_letters <- LETTERS[1:length(ans_vec)]
+  ans_texts   <- ans_vec
 
-  correct_answer <- ans[1]        # erste Antwort ist korrekt
-  idx <- sample(1:4)              # zufällig mischen
-  shuffled <- ans[idx]
+  # Antwortoptionen für die Vorderseite (mit <br>)
+  text_block <- paste0(ans_letters, ". ", ans_texts, collapse = "<br>")
 
-  correct_letter <- letters_vec[which(shuffled == correct_answer)]
-  answers_text <- paste0(letters_vec, ". ", shuffled, collapse = "<br>")
+  # Korrekte Antwort identifizieren
+  correct_index <- which(ans_letters == attr(ans_vec, "correct")) # falls markiert
+  if(length(correct_index) == 0) correct_index <- 1 # fallback
 
-  list(text = answers_text, correct = correct_letter)
+  list(
+    text    = text_block,
+    correct = ans_letters[correct_index],
+    correct_text = ans_texts[correct_index]
+  )
 }
+
 
 
 # Bilder herunterladen + <img>-Tag erzeugen
@@ -137,16 +141,18 @@ anki_df <- df %>%
     answers_prep   = map(answers, prepare_answers),
     answers_text   = map_chr(answers_prep, "text"),
     correct_letter = map_chr(answers_prep, "correct"),
+    correct_text   = map_chr(answers_prep, "correct_text"),
     image_html     = map2_chr(image_urls, id, prepare_images),
     front = paste0(
       "Frage ", id, " (", cat, ")<br>",
-      question, "<br>",          # Frage
-      image_html,                # dann Bilder
-      answers_text               # dann Antworten
+      question, "<br>",
+      image_html,
+      answers_text
     ),
-    back = correct_letter
+    back = paste0(correct_letter, ". ", correct_text)  # ← angepasst
   ) %>%
   select(front, back)
+
 
 # -----------------------------
 # Export für Anki
@@ -161,3 +167,14 @@ write.table(anki_df,
 
 message("Export fertig! Datei 'anki_cards.tsv' und Bilder in '", media_dir, "'")
 
+
+
+anki_df2 <- anki_df %>%
+  select(back, front)
+write.table(anki_df2,
+            file = "./anki/anki_cards_v2.tsv",
+            sep = "\t",
+            row.names = FALSE,
+            col.names = FALSE,
+            quote = FALSE,
+            fileEncoding = "UTF-8")
