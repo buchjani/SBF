@@ -105,7 +105,6 @@ prepare_answers <- function(ans_list) {
 
 # Bilder herunterladen + <img>-Tag erzeugen
 prepare_images <- function(urls, qid) {
-  # URLs in Character-Vektor konvertieren
   urls <- unlist(urls)
   if(length(urls) == 0) return("")
 
@@ -121,11 +120,12 @@ prepare_images <- function(urls, qid) {
       tryCatch(download.file(url, destfile, mode="wb", quiet=TRUE),
                error=function(e) message("Fehler beim Download: ", url))
     }
-    img_tags <- c(img_tags, sprintf('<img src="%s">', fname))
+    # Bildblock mit <br> davor und dahinter
+    img_tags <- c(img_tags, sprintf('<br><img src="%s"><br>', fname))
   }
-
-  paste(img_tags, collapse = "<br>")  # immer Länge 1 zurückgeben
+  paste(img_tags, collapse = "")
 }
+
 
 
 # -----------------------------
@@ -134,21 +134,19 @@ prepare_images <- function(urls, qid) {
 
 anki_df <- df %>%
   mutate(
-    cat_clean      = clean_text(cat),
-    question_clean = clean_text(question),
     answers_prep   = map(answers, prepare_answers),
     answers_text   = map_chr(answers_prep, "text"),
     correct_letter = map_chr(answers_prep, "correct"),
     image_html     = map2_chr(image_urls, id, prepare_images),
     front = paste0(
-      "Frage ", id, " (", cat_clean, ")<br>",
-      question_clean, "<br><br>",
-      ifelse(image_html == "", "", paste0("<br>", image_html)),
-      answers_text
+      "Frage ", id, " (", cat, ")<br>",
+      question, "<br>",          # Frage
+      image_html,                # dann Bilder
+      answers_text               # dann Antworten
     ),
-    back = clean_text(correct_letter)
+    back = correct_letter
   ) %>%
-  transmute(front, back)
+  select(front, back)
 
 # -----------------------------
 # Export für Anki
