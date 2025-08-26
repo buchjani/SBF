@@ -40,7 +40,6 @@ texts_clean <-
   ) %>%
   fill(q_no, .direction = "down") %>%
   filter(! (q_no == -999 | is.na(q_no)))
-
 img_srcs <-
   texts_clean %>%
   filter(type == "img") %>%
@@ -48,7 +47,6 @@ img_srcs <-
   filter(!is.na(src)) %>%
   group_by(q_no) %>%
   nest(src = src)
-
 df <- texts_clean %>%
   filter(type != "img") %>%
   select(-src) %>%
@@ -67,7 +65,9 @@ df <- texts_clean %>%
 ### Check für Fragen mit mehreren Images
 # df <- df[109:113,]
 
+
 # DAtenaufbereitung für Anki -----------------------------------
+
 set.seed(1)
 
 # Medienordner
@@ -88,19 +88,16 @@ prepare_answers <- function(ans_list) {
   ans <- unlist(ans_list, use.names = FALSE)
   ans <- vapply(ans, clean_text, FUN.VALUE = character(1))
   if (length(ans) < 4) ans <- c(ans, rep("", 4 - length(ans)))
-
   letters_vec <- LETTERS[1:4]
   correct_answer <- ans[1]
   idx <- sample(1:4)
   shuffled <- ans[idx]
-
   correct_pos <- match(correct_answer, shuffled)
   correct_letter <- letters_vec[correct_pos]
   correct_text   <- shuffled[correct_pos]
 
   # jede Option mit <br> am Ende
   answers_text <- paste0(letters_vec, ". ", shuffled, "<br>", collapse = "")
-
   list(
     text = answers_text,
     correct_letter = correct_letter,
@@ -112,17 +109,14 @@ prepare_answers <- function(ans_list) {
 prepare_images <- function(urls, qid) {
   urls <- unlist(urls, use.names = FALSE)
   if (length(urls) == 0 || all(is.na(urls))) return("")
-
   tags <- character(0)
   for (i in seq_along(urls)) {
     url <- as.character(urls[i])
     if (is.na(url) || url == "") next
-
     ext <- tools::file_ext(url)
     if (ext == "") ext <- "jpg"
     fname <- paste0("q", qid, "_", i, ".", ext)
     destfile <- file.path(media_dir, fname)
-
     if (!file.exists(destfile)) {
       tryCatch(
         download.file(url, destfile, mode = "wb", quiet = TRUE),
@@ -139,12 +133,10 @@ anki_df <- df %>%
   mutate(
     cat_clean      = clean_text(cat),
     question_clean = clean_text(question),
-
     ans_p          = map(answers, prepare_answers),
     answers_text   = map_chr(ans_p, "text"),
     correct_letter = map_chr(ans_p, "correct_letter"),
     correct_text   = map_chr(ans_p, "correct_text"),
-
     image_html     = map2_chr(image_urls, id, prepare_images),
 
     # FRONT: genau definierte Struktur
@@ -155,7 +147,6 @@ anki_df <- df %>%
       "<br>",                    # fester Abstand
       answers_text
     ),
-
     back = paste0(correct_letter, ". ", correct_text)
   ) %>%
   transmute(front, back)
@@ -163,6 +154,7 @@ anki_df <- df %>%
 # -----------------------------
 # Export (eine Zeile pro Karte)
 # -----------------------------
+
 # Tab-getrennt, ohne Header, UTF-8 (ohne BOM)
 write.table(anki_df,
             file = "./anki/anki_cards.tsv",
